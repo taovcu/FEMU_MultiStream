@@ -200,6 +200,7 @@ static void ssd_advance_write_pointer(struct ssd *ssd, uint32_t sid)
                 wpp->curline = get_next_free_line(ssd);
                 if (!wpp->curline) {
                     /* TODO */
+                    printf("abort\n");
                     abort();
                 }
                 wpp->curline->sid = sid;
@@ -253,7 +254,7 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->pls_per_lun = 1;
     spp->luns_per_ch = 8;
     spp->nchs = 8;
-    spp->nwps = 4;
+    spp->nwps = 2;
 
     spp->pg_rd_lat = NAND_READ_LATENCY;
     spp->pg_wr_lat = NAND_PROG_LATENCY;
@@ -377,6 +378,14 @@ static void ssd_init_stats(struct ssd *ssd)
     struct statistics *stats = &ssd->stats;
     stats->total_user_writes = 0;
     stats->total_ssd_writes = 0;
+    stats->ext4_jrl_writes = 0;
+
+    for (int i = 0; i < 4; i++) {
+        stats->pg_cnt[i] = 0;
+    }
+
+    memset(stats->ext4_jrl_lba_writes, 0, sizeof(stats->ext4_jrl_lba_writes));
+    //memset(stats->lba_cnt, 0, sizeof(stats->lba_cnt));
 }
 
 
@@ -859,9 +868,37 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             break;
     }
 
+    FILE *file1;
+    file1 = fopen("/home/yshan/femu_res/lba_record/entp_rec.txt", "a+");
+    if (file1 == NULL){
+            perror("Error opening file");
+            return 1;
+        }
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+        qemu_log_mask(LOG_FEMU, "ssd_write: lpn=%lu\n", lpn); 
+        
         compress_ratio = calc_compress_ratio(mb, lpn);
-        sid = get_stream_id(compress_ratio, lpn);
+        // sid = get_stream_id(compress_ratio, lpn);
+        // if (lpn >= 2129920 && lpn <= 2162687) { // hard coded journal logical block address range
+        //     sid = 1;
+        // }
+
+        // if (compress_ratio < 6.65){
+        //     sid = 0;
+        // }
+        // else{
+        //     sid = 1;
+        // }
+
+        sid = 0;
+        
+        
+        
+        fprintf(file1, "%lf ", compress_ratio);
+        
+
+        ssd->stats.pg_cnt[sid]++;
+        //ssd->stats.lba_cnt[lpn]++;
 
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
@@ -890,8 +927,15 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         curlat = ssd_advance_status(ssd, &ppa, &swr);
         maxlat = (curlat > maxlat) ? curlat : maxlat;
 
+        /* user-defined statistics */
         ssd->stats.total_user_writes++;
+        if (lpn >= 2129920 && lpn <= 2162687) { // hard coded journal logical block address range
+            ssd->stats.ext4_jrl_writes++; 
+            ssd->stats.ext4_jrl_lba_writes[lpn - 2129920]++;
+        }
+
     }
+    fclose(file1);
 
     return maxlat;
 }

@@ -70,15 +70,55 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
     }
 }
 
+/*
+static int compare(const void *lhs, const void *rhs)
+{
+    return (*(uint64_t*)rhs - *(uint64_t *)lhs); // descending order
+}
+*/
+
 static void bb_stats(FemuCtrl *n, NvmeCmd *cmd)
 {
     struct ssd *ssd = n->ssd;
-    femu_log("total_ssd_writes = %lu, total_user_writes = %lu\n",
-                ssd->stats.total_ssd_writes, ssd->stats.total_user_writes);
+    femu_log("total_ssd_writes = %lu, total_user_writes = %lu, write_amp = %lf\n\r",
+        ssd->stats.total_ssd_writes, ssd->stats.total_user_writes, (double)ssd->stats.total_ssd_writes / ssd->stats.total_user_writes);
 
     struct line_mgmt *lm = &ssd->lm;
-    femu_log("tt_lines = %d, free_line_cnt = %d, full_line_cnt = %d, victim_line_cnt = %d\n",
-            lm->tt_lines, lm->free_line_cnt, lm->full_line_cnt, lm->victim_line_cnt);
+    femu_log("tt_lines = %d, free_line_cnt = %d, full_line_cnt = %d, victim_line_cnt = %d\n\r",
+        lm->tt_lines, lm->free_line_cnt, lm->full_line_cnt, lm->victim_line_cnt);
+
+    femu_log("stream1_cnt = %lu, stream2_cnt = %lu, stream3_cnt = %lu, stream4_cnt = %lu\n\r", 
+        ssd->stats.pg_cnt[0], ssd->stats.pg_cnt[1], ssd->stats.pg_cnt[2], ssd->stats.pg_cnt[3]);
+
+    femu_log("ext4_journal_writes = %lu\n\r", ssd->stats.ext4_jrl_writes);
+    
+    int ext4_jrl_blks = sizeof(ssd->stats.ext4_jrl_lba_writes) / sizeof(uint64_t); 
+    printf("ext4_jrl_blks = %d\n", ext4_jrl_blks);
+    /*
+    for (int i = 0; i < ext4_jrl_blks; i++) {
+        //printf("ext4_jrl_lba[%d]_writes = %lu\n", i, ssd->stats.ext4_jrl_lba_writes[i]);
+    }
+    */
+
+    /*
+    // Top 100 LBA access
+    int sz, num;
+    uint64_t *arr;
+
+    sz = sizeof(ssd->stats.lba_cnt);
+    num = sz / sizeof(uint64_t);
+    arr = (uint64_t *)malloc(sz);
+
+    memcpy(arr, ssd->stats.lba_cnt, sz); 
+    qsort(arr, num, sizeof(uint64_t), compare);
+
+    for (int i = 0; i < 100; i++) {
+        printf("Top %d LAB: %lu\n", i, arr[i]);
+    }
+
+    free(arr);
+
+    */
 }
 
 static uint16_t bb_nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,

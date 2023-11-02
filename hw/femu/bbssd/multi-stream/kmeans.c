@@ -1,7 +1,7 @@
 #include "kmeans.h"
 
 /* number of clusters*/
-#define MEANS (4)
+#define MEANS (2)
 
 /* number of points to be clustered for each round*/
 #define BATCH_SIZE (6)
@@ -13,9 +13,12 @@
 
 static double gs_MeansInit[MEANS][KMEANS_FEATURE_CNT] = {
     {0.2, 0},
-    {0.4, 0},
+    // {0.4, 0},
     {0.6, 0},
-    {0.8, 0},
+    // {0.8, 0},
+    // {0.0, 0.0},
+    // {0.1, 0.1},
+    // {0.2,0.2},
 };
 
 // store layout : weight 0, weight 1
