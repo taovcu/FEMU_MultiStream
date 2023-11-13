@@ -775,6 +775,17 @@ static int do_gc(struct ssd *ssd, bool force)
               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
               ssd->lm.free_line_cnt);
 
+    FILE * page_move_file;
+    page_move_file = fopen("/home/yshan/femu_res/page_move/page_move_count.txt", "a+");
+    if (page_move_file == NULL){
+        printf("CANNOT OPEN FILE\n");
+        return 1;
+    }
+    
+    fprintf(page_move_file, "搬移页面数：%d\t失效页面数：%d\t总页面数:16384\t搬移率：%f%%\n\r", \
+        victim_line->vpc, victim_line->ipc, ((float)victim_line->vpc/16384)*100);
+    fclose(page_move_file);
+
     /* copy back valid data */
     for (ch = 0; ch < spp->nchs; ch++) {
         for (lun = 0; lun < spp->luns_per_ch; lun++) {
@@ -868,16 +879,31 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             break;
     }
 
-    FILE *file1;
-    file1 = fopen("/home/yshan/femu_res/lba_record/entp_rec.txt", "a+");
-    if (file1 == NULL){
-            perror("Error opening file");
-            return 1;
-        }
+    FILE *file1=NULL;
+    if (ENTP_REC){
+        file1 = fopen("/home/yshan/femu_res/entp_record/cc_load_entp.txt", "a+");
+        if (file1 == NULL){
+                perror("Error opening file");
+                return 1;
+            }
+    }
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         qemu_log_mask(LOG_FEMU, "ssd_write: lpn=%lu\n", lpn); 
         
         compress_ratio = calc_compress_ratio(mb, lpn);
+
+        /*record LPN*/
+        FILE * lpn_rec;
+        
+        lpn_rec = fopen("/home/yshan/femu_res/lpn_record/cc_lpn_rec.txt", "a+");
+        if (lpn_rec == NULL){
+            perror("Error opening file");
+            return 1;
+        }
+        fprintf(lpn_rec, "%"PRIu64"\t", lpn);
+        fclose(lpn_rec);
+
+
         // sid = get_stream_id(compress_ratio, lpn);
         // if (lpn >= 2129920 && lpn <= 2162687) { // hard coded journal logical block address range
         //     sid = 1;
@@ -892,10 +918,9 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 
         sid = 0;
         
-        
-        
-        fprintf(file1, "%lf ", compress_ratio);
-        
+        if (file1){
+            fprintf(file1, "%lf ", compress_ratio);
+        }
 
         ssd->stats.pg_cnt[sid]++;
         //ssd->stats.lba_cnt[lpn]++;
@@ -935,7 +960,9 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         }
 
     }
-    fclose(file1);
+    if (file1){
+        fclose(file1);
+    }
 
     return maxlat;
 }

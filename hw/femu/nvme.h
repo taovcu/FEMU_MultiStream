@@ -330,6 +330,8 @@ enum NvmeAdminCommands {
     NVME_ADM_CMD_FEMU_DEBUG     = 0xee,
     NVME_ADM_CMD_FEMU_FLIP      = 0xef,
     NVME_ADM_CMD_FEMU_STATS     = 0xf0,
+    NVME_ADM_CMD_ENTP_REC_ON    = 0xf1,
+    NVME_ADM_CMD_ENTP_REC_OFF    = 0xf2,
 };
 
 enum NvmeIoCommands {

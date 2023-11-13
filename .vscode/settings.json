@@ -59,7 +59,10 @@
   "files.associations": {
     "log.h": "c",
     "random": "c",
-    "*.code": "c"
+    "*.code": "c",
+    "ftl.h": "c",
+    "nvme.h": "c",
+    "stream.h": "c"
   },
   "remote.downloadExtensionsLocally": true
 }

@@ -3,6 +3,8 @@
 
 #include "../nvme.h"
 
+extern int ENTP_REC;
+
 #define INVALID_PPA     (~(0ULL))
 #define INVALID_LPN     (~(0ULL))
 #define UNMAPPED_PPA    (~(0ULL))

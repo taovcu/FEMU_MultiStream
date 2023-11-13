@@ -1,6 +1,8 @@
 #include "../nvme.h"
 #include "./ftl.h"
 
+int ENTP_REC = 0;
+
 static void bb_init_ctrl_str(FemuCtrl *n)
 {
     static int fsid_vbb = 0;
@@ -93,7 +95,7 @@ static void bb_stats(FemuCtrl *n, NvmeCmd *cmd)
     femu_log("ext4_journal_writes = %lu\n\r", ssd->stats.ext4_jrl_writes);
     
     int ext4_jrl_blks = sizeof(ssd->stats.ext4_jrl_lba_writes) / sizeof(uint64_t); 
-    printf("ext4_jrl_blks = %d\n", ext4_jrl_blks);
+    printf("ext4_jrl_blks = %d\n\r", ext4_jrl_blks);
     /*
     for (int i = 0; i < ext4_jrl_blks; i++) {
         //printf("ext4_jrl_lba[%d]_writes = %lu\n", i, ssd->stats.ext4_jrl_lba_writes[i]);
@@ -147,6 +149,14 @@ static uint16_t bb_admin_cmd(FemuCtrl *n, NvmeCmd *cmd)
         return NVME_SUCCESS;
     case NVME_ADM_CMD_FEMU_STATS:
         bb_stats(n, cmd);
+        return NVME_SUCCESS;
+    case NVME_ADM_CMD_ENTP_REC_ON:
+        ENTP_REC = 1;
+        printf("Trun ON the entropy record.\n\r");
+        return NVME_SUCCESS;
+    case NVME_ADM_CMD_ENTP_REC_OFF:
+        ENTP_REC = 0;
+        printf("Trun OFF the entropy record.\n\r");
         return NVME_SUCCESS;
     default:
         return NVME_INVALID_OPCODE | NVME_DNR;
