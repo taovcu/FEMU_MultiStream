@@ -62,7 +62,13 @@
     "*.code": "c",
     "ftl.h": "c",
     "nvme.h": "c",
-    "stream.h": "c"
+    "stream.h": "c",
+    "*.def": "c",
+    "*.idef": "c",
+    "*.inc": "c",
+    "fstream": "c",
+    "sstream": "c",
+    "streambuf": "c"
   },
   "remote.downloadExtensionsLocally": true
 }

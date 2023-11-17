@@ -89,13 +89,13 @@ static void bb_stats(FemuCtrl *n, NvmeCmd *cmd)
     femu_log("tt_lines = %d, free_line_cnt = %d, full_line_cnt = %d, victim_line_cnt = %d\n\r",
         lm->tt_lines, lm->free_line_cnt, lm->full_line_cnt, lm->victim_line_cnt);
 
-    femu_log("stream1_cnt = %lu, stream2_cnt = %lu, stream3_cnt = %lu, stream4_cnt = %lu\n\r", 
-        ssd->stats.pg_cnt[0], ssd->stats.pg_cnt[1], ssd->stats.pg_cnt[2], ssd->stats.pg_cnt[3]);
+    femu_log("stream0_cnt = %lu, stream1_cnt = %lu, stream2_cnt = %lu, stream3_cnt = %lu\n",
+        ssd->stats.stream_cnt[0], ssd->stats.stream_cnt[1], ssd->stats.stream_cnt[2], ssd->stats.stream_cnt[3]);
 
-    femu_log("ext4_journal_writes = %lu\n\r", ssd->stats.ext4_jrl_writes);
+    // femu_log("ext4_journal_writes = %lu\n\r", ssd->stats.ext4_jrl_writes);
     
-    int ext4_jrl_blks = sizeof(ssd->stats.ext4_jrl_lba_writes) / sizeof(uint64_t); 
-    printf("ext4_jrl_blks = %d\n\r", ext4_jrl_blks);
+    // int ext4_jrl_blks = sizeof(ssd->stats.ext4_jrl_lba_writes) / sizeof(uint64_t); 
+    // printf("ext4_jrl_blks = %d\n\r", ext4_jrl_blks);
     /*
     for (int i = 0; i < ext4_jrl_blks; i++) {
         //printf("ext4_jrl_lba[%d]_writes = %lu\n", i, ssd->stats.ext4_jrl_lba_writes[i]);

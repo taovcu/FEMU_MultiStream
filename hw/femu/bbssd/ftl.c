@@ -376,16 +376,7 @@ static void ssd_init_rmap(struct ssd *ssd)
 static void ssd_init_stats(struct ssd *ssd)
 {
     struct statistics *stats = &ssd->stats;
-    stats->total_user_writes = 0;
-    stats->total_ssd_writes = 0;
-    stats->ext4_jrl_writes = 0;
-
-    for (int i = 0; i < 4; i++) {
-        stats->pg_cnt[i] = 0;
-    }
-
-    memset(stats->ext4_jrl_lba_writes, 0, sizeof(stats->ext4_jrl_lba_writes));
-    //memset(stats->lba_cnt, 0, sizeof(stats->lba_cnt));
+    memset(stats, 0, sizeof(*stats));
 }
 
 
@@ -862,7 +853,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     uint64_t curlat = 0, maxlat = 0;
     int r;
 
-    uint32_t sid;
+    uint32_t sid = 0;
     double compress_ratio;
     FemuCtrl *n = req->sq->ctrl;
     void *mb = n->mbe->logical_space;
@@ -887,10 +878,18 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
                 return 1;
             }
     }
+
+    
+    NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
+#define NVME_RW_DTYPE_STREAMS   (1 << 4)
+    if (rw->control & NVME_RW_DTYPE_STREAMS)
+        sid = (rw->dsmgmt >> 16);
+
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         qemu_log_mask(LOG_FEMU, "ssd_write: lpn=%lu\n", lpn); 
         
         compress_ratio = calc_compress_ratio(mb, lpn);
+        // compress_ratio += 1;
 
         /*record LPN*/
         FILE * lpn_rec;
@@ -904,26 +903,21 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         fclose(lpn_rec);
 
 
-        // sid = get_stream_id(compress_ratio, lpn);
-        // if (lpn >= 2129920 && lpn <= 2162687) { // hard coded journal logical block address range
-        //     sid = 1;
-        // }
+        //sid = get_stream_id(compress_ratio, lpn);
+        if (compress_ratio>4.5 && compress_ratio<4.75){
+            sid=1;
+        }else{
+            sid=0;
+        }
 
-        // if (compress_ratio < 6.65){
-        //     sid = 0;
-        // }
-        // else{
-        //     sid = 1;
-        // }
-
-        sid = 0;
+        /* user-defined statistics */
+        ssd->stats.total_user_writes++;
+        ssd->stats.stream_cnt[sid]++;
         
         if (file1){
             fprintf(file1, "%lf ", compress_ratio);
         }
 
-        ssd->stats.pg_cnt[sid]++;
-        //ssd->stats.lba_cnt[lpn]++;
 
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
@@ -952,12 +946,6 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         curlat = ssd_advance_status(ssd, &ppa, &swr);
         maxlat = (curlat > maxlat) ? curlat : maxlat;
 
-        /* user-defined statistics */
-        ssd->stats.total_user_writes++;
-        if (lpn >= 2129920 && lpn <= 2162687) { // hard coded journal logical block address range
-            ssd->stats.ext4_jrl_writes++; 
-            ssd->stats.ext4_jrl_lba_writes[lpn - 2129920]++;
-        }
 
     }
     if (file1){
@@ -966,6 +954,41 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 
     return maxlat;
 }
+
+static uint64_t ssd_discard(struct ssd *ssd, NvmeRequest *req)
+{
+    struct ssdparams *spp = &ssd->sp;
+    uint16_t nr = req->range_nr;
+    NvmeDsmRange *range = req->range;
+    int i;
+    uint64_t lba;
+    uint32_t len;
+    uint64_t start_lpn;
+    uint64_t end_lpn;
+    uint64_t lpn;
+    struct ppa ppa;
+
+    for (i = 0; i < nr; i++) {
+        lba = le64_to_cpu(range[i].slba);
+        len = le32_to_cpu(range[i].nlb);
+
+        start_lpn = lba / spp->secs_per_pg;
+        end_lpn = (lba + len - 1) / spp->secs_per_pg;
+        for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+            ppa = get_maptbl_ent(ssd, lpn);
+            if (mapped_ppa(&ppa)) {
+                mark_page_invalid(ssd, &ppa);
+                set_rmap_ent(ssd, INVALID_LPN, &ppa);
+            }
+        }
+    }
+
+    g_free(req->range);
+    return 0;
+}
+
+
+
 
 static void *ftl_thread(void *arg)
 {
@@ -1003,7 +1026,7 @@ static void *ftl_thread(void *arg)
                 lat = ssd_read(ssd, req);
                 break;
             case NVME_CMD_DSM:
-                lat = 0;
+                lat = ssd_discard(ssd, req);
                 break;
             default:
                 //ftl_err("FTL received unkown request type, ERROR\n");
