@@ -68,7 +68,13 @@
     "*.inc": "c",
     "fstream": "c",
     "sstream": "c",
-    "streambuf": "c"
+    "streambuf": "c",
+    "kmeans.h": "c",
+    "*.tcc": "c",
+    "optional": "c",
+    "limits": "c",
+    "stop_token": "c",
+    "variant": "c"
   },
   "remote.downloadExtensionsLocally": true
 }

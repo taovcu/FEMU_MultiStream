@@ -1,10 +1,11 @@
 #include "kmeans.h"
+#include <stdio.h>
 
 /* number of clusters*/
-#define MEANS (2)
+#define MEANS (8)
 
 /* number of points to be clustered for each round*/
-#define BATCH_SIZE (6)
+#define BATCH_SIZE (600)
 
 #define ABS_SUB(a,b)    (((a)>(b)) ? ((a)-(b)) : ((b)-(a)))
 
@@ -12,13 +13,14 @@
      for (KmeansFeature_e feature = KMEANS_CPS_RATE;feature < KMEANS_FEATURE_CNT; feature++)
 
 static double gs_MeansInit[MEANS][KMEANS_FEATURE_CNT] = {
-    {0.2, 0},
-    // {0.4, 0},
-    {0.6, 0},
-    // {0.8, 0},
-    // {0.0, 0.0},
-    // {0.1, 0.1},
-    // {0.2,0.2},
+    {0.125, 0},
+    {0.25, 0},
+    {0.325, 0},
+    {0.5, 0},
+    {0.625, 0},
+    {0.75, 0},
+    {0.875, 0},
+    {1.0, 0}
 };
 
 // store layout : weight 0, weight 1
@@ -45,6 +47,7 @@ typedef struct _KmeansCtx_t {
 
 static volatile KmeansCtx_t gs_KmeansCtx;
 unsigned char KmeansIsInitialized = 0;
+// static unsigned long kmeans_divider=0;
 
 void KmeansInit(KmeansNormalizer n)
 {
@@ -83,6 +86,24 @@ static void UpdateMeans(void)
         }
         gs_KmeansCtx.batchCnt = 0;
     }
+    
+    // if (kmeans_divider % 10000 == 0){
+    //     FILE * FilePointer;
+    //     // printf("xiewenjian");
+    //     FilePointer = fopen("/home/yshan/means_file.txt", "a");
+    //     if (FilePointer == NULL) {
+    //         printf("无法打开文件。\n");
+
+    //     }
+        
+    //     for (int i=0; i<MEANS;i++){
+    //             fprintf(FilePointer, "(%lf, %lf)\t", gs_KmeansCtx.means[i][0], gs_KmeansCtx.means[i][1]);
+    //     }
+    //     fprintf(FilePointer, "\r\n");
+    //     fclose(FilePointer);
+    // }
+    // kmeans_divider += 1;
+
 }
 
 unsigned int GetClusters(KmeansFeautre kmeansFeature)
