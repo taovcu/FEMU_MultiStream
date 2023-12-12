@@ -245,22 +245,20 @@ static void check_params(struct ssdparams *spp)
     //ftl_assert(is_power_of_2(spp->nchs));
 }
 
-static void ssd_init_params(struct ssdparams *spp)
+static void ssd_init_params(struct ssdparams *spp, FemuCtrl *n)
 {
-    spp->secsz = 512;
-    spp->secs_per_pg = 8;
-    spp->pgs_per_blk = 256;
-    spp->blks_per_pl = 256; /* 16GB */
-    spp->pls_per_lun = 1;
-    spp->luns_per_ch = 8;
-    spp->nchs = 8;
-    // spp->nwps = 2;
-    spp->nwps = MAX_NUM_STREAMS;
+    spp->secsz = n->bb_params.secsz; // 512
+    spp->secs_per_pg = n->bb_params.secs_per_pg; // 8
+    spp->pgs_per_blk = n->bb_params.pgs_per_blk;  // 256
+    spp->blks_per_pl = n->bb_params.blks_per_pl;  /* 256 16GB */
+    spp->pls_per_lun = n->bb_params.pls_per_lun;  // 1
+    spp->luns_per_ch = n->bb_params.luns_per_ch;  // 8
+    spp->nchs = n->bb_params.nchs;                // 8;
 
-    spp->pg_rd_lat = NAND_READ_LATENCY;
-    spp->pg_wr_lat = NAND_PROG_LATENCY;
-    spp->blk_er_lat = NAND_ERASE_LATENCY;
-    spp->ch_xfer_lat = 0;
+    spp->pg_rd_lat = n->bb_params.pg_rd_lat;      // NAND_READ_LATENCY
+    spp->pg_wr_lat = n->bb_params.pg_wr_lat;      // NAND_PROG_LATENCY
+    spp->blk_er_lat = n->bb_params.blk_er_lat;    // NAND_ERASE_LATENCY
+    spp->ch_xfer_lat = n->bb_params.ch_xfer_lat;  // 0
 
     /* calculated values */
     spp->secs_per_blk = spp->secs_per_pg * spp->pgs_per_blk;
@@ -290,12 +288,16 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->secs_per_line = spp->pgs_per_line * spp->secs_per_pg;
     spp->tt_lines = spp->blks_per_lun; /* TODO: to fix under multiplanes */
 
-    spp->gc_thres_pcent = 0.75;
+    spp->gc_thres_pcent = n->bb_params.gc_thres_pcent/100.0; // 0.75
     spp->gc_thres_lines = (int)((1 - spp->gc_thres_pcent) * spp->tt_lines);
-    spp->gc_thres_pcent_high = 0.95;
+    spp->gc_thres_pcent_high = n->bb_params.gc_thres_pcent_high/100.0; // 0.95
     spp->gc_thres_lines_high = (int)((1 - spp->gc_thres_pcent_high) * spp->tt_lines);
     spp->enable_gc_delay = true;
 
+    /* multi-stream related parameters */
+    spp->nwps = n->bb_params.nstreams;
+    spp->stream_remap_thres = n->bb_params.stream_remap_thres;
+    spp->multistream_strategy = n->bb_params.multistream_strategy;
 
     check_params(spp);
 }
@@ -376,8 +378,14 @@ static void ssd_init_rmap(struct ssd *ssd)
 
 static void ssd_init_stats(struct ssd *ssd)
 {
-    struct statistics *stats = &ssd->stats;
-    memset(stats, 0, sizeof(*stats));
+    struct ssdparams *spp = &ssd->sp;
+    memset(&ssd->stats, 0, sizeof(struct ssd_stats));
+
+    ssd->stats.streams =  g_malloc0(sizeof(struct stream_stats) * spp->nwps);
+    memset(ssd->stats.streams, 0, sizeof(struct stream_stats) * spp->nwps);
+
+    ssd->pg_copyback_tbl = g_malloc0(sizeof(uint32_t) * spp->tt_pgs);
+    memset(ssd->pg_copyback_tbl, 0, sizeof(uint32_t) * spp->tt_pgs);
 }
 
 
@@ -388,7 +396,7 @@ void ssd_init(FemuCtrl *n)
 
     ftl_assert(ssd);
 
-    ssd_init_params(spp);
+    ssd_init_params(spp, n);
 
     /* initialize ssd internal layout architecture */
     ssd->ch = g_malloc0(sizeof(struct ssd_channel) * spp->nchs);
@@ -654,6 +662,15 @@ static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
     }
 }
 
+
+static uint8_t gc_collect_info(struct ssd *ssd, struct ppa *ppa)
+{
+    uint64_t lpn = get_rmap_ent(ssd, ppa);
+    uint8_t cnt = ++ssd->pg_copyback_tbl[lpn];
+    return cnt;
+}
+
+
 /* move valid page data (already in DRAM) from victim line to a new page */
 static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa, uint32_t sid)
 {
@@ -672,6 +689,11 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa, uint32_t sid
 
     /* need to advance the write pointer here */
     ssd_advance_write_pointer(ssd, sid);
+
+    /* GC-related statistics */
+    struct ssd_stats *stats = &ssd->stats;
+    stats->total_gc_writes++;
+    stats->streams[sid].gc_writes++;
 
     if (ssd->sp.enable_gc_delay) {
         struct nand_cmd gcw;
@@ -730,6 +752,11 @@ static void clean_one_block(struct ssd *ssd, struct ppa *ppa, uint32_t sid)
         ftl_assert(pg_iter->status != PG_FREE);
         if (pg_iter->status == PG_VALID) {
             gc_read_page(ssd, ppa);
+
+            if (gc_collect_info(ssd, ppa) >= spp->stream_remap_thres) {
+                /* change stream ID when copywrite too much */
+                sid = 7;
+            }
             /* delay the maptbl update until "write" happens */
             gc_write_page(ssd, ppa, sid);
             cnt++;
@@ -767,21 +794,25 @@ static int do_gc(struct ssd *ssd, bool force)
     ssd->stats.streams[sid].copyback_ratio_sum +=
         1.0 * victim_line->vpc / spp->pgs_per_line;
 
+    /*
+    femu_log("victim_line: id = %d, copyback_ratio = %f\n",victim_line->id, 1.0 * victim_line->vpc / spp->pgs_per_line);
+    for (int i = 0; i < ssd->lm.tt_lines; i++) {
+        struct line *line = &ssd->lm.lines[i];
+        femu_log("line[%d]: sid = %d, vpc = %d, ipc = %d, pos = %lu, copyback_ratio = %f\n",            i, 
+            line->sid,
+            line->vpc,
+            line->ipc,
+            line->pos,
+            1.0 * line->vpc / spp->pgs_per_line
+            );
+    }
+    */
+
     ppa.g.blk = victim_line->id;
     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,
               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
               ssd->lm.free_line_cnt);
 
-    FILE * page_move_file;
-    page_move_file = fopen("/home/yshan/femu_res/page_move/page_move_count.txt", "a+");
-    if (page_move_file == NULL){
-        printf("CANNOT OPEN FILE\n");
-        return 1;
-    }
-    
-    fprintf(page_move_file, "搬移页面数：%d\t失效页面数：%d\t总页面数:16384\t搬移率：%f%%\n\r", \
-        victim_line->vpc, victim_line->ipc, ((float)victim_line->vpc/16384)*100);
-    fclose(page_move_file);
 
     /* copy back valid data */
     for (ch = 0; ch < spp->nchs; ch++) {
@@ -859,7 +890,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     uint64_t curlat = 0, maxlat = 0;
     int r;
 
-    uint32_t sid = 0;
+    uint32_t sid = 0; // default stream ID
     double compress_ratio;
     FemuCtrl *n = req->sq->ctrl;
     void *mb = n->mbe->logical_space;
@@ -876,41 +907,32 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             break;
     }
 
-    FILE *file1=NULL;
-    if (ENTP_REC){
-        file1 = fopen("/home/yshan/femu_res/entp_record/cc_load_entp.txt", "a+");
-        if (file1 == NULL){
-                perror("Error opening file");
-                return 1;
-            }
-    }
-
     
-    NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
-#define NVME_RW_DTYPE_STREAMS   (1 << 4)
-    if (rw->control & NVME_RW_DTYPE_STREAMS)
-        sid = (rw->dsmgmt >> 16);
+//     NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
+// #define NVME_RW_DTYPE_STREAMS   (1 << 4)
+//     if (rw->control & NVME_RW_DTYPE_STREAMS)
+//         sid = (rw->dsmgmt >> 16);
+    if (spp->multistream_strategy == MULTISTREAM_MANUAL) {
+        NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
+        #define NVME_RW_DTYPE_STREAMS (1 << 4)
+        if (rw->control & NVME_RW_DTYPE_STREAMS)
+            sid = (rw->dsmgmt >> 16);
+    }
 
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         qemu_log_mask(LOG_FEMU, "ssd_write: lpn=%lu\n", lpn); 
-        
-        compress_ratio = calc_compress_ratio(mb, lpn);
-        // compress_ratio += 1;
-
-
-
-        sid = get_stream_id(compress_ratio, lpn);
+        /* assign stream ID */
+        if (spp->multistream_strategy == MULTISTREAM_ENTROPY) {
+            compress_ratio = calc_compress_ratio(mb, lpn);
+            sid = get_stream_id(compress_ratio, lpn);
+        }
 
 
         /* user-defined statistics */
         ssd->stats.total_user_writes++;
-        ssd->stats.streams[sid].cnt++;
-        
-        if (file1){
-            fprintf(file1, "%lf ", compress_ratio);
-        }
+        ssd->stats.streams[sid].user_writes++;
 
-
+        ssd->pg_copyback_tbl[lpn] = 0;
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
             /* update old page information first */
@@ -939,9 +961,6 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         maxlat = (curlat > maxlat) ? curlat : maxlat;
 
 
-    }
-    if (file1){
-        fclose(file1);
     }
 
     return maxlat;

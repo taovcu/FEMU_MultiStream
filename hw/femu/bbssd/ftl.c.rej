@@ -1,0 +1,73 @@
+diff a/hw/femu/bbssd/ftl.c b/hw/femu/bbssd/ftl.c	(rejected hunks)
+@@ -245,21 +245,20 @@ static void check_params(struct ssdparams *spp)
+     //ftl_assert(is_power_of_2(spp->nchs));
+ }
+ 
+-static void ssd_init_params(struct ssdparams *spp)
+-{
+-    spp->secsz = 512;
+-    spp->secs_per_pg = 8;
+-    spp->pgs_per_blk = 256;
+-    spp->blks_per_pl = 256; /* 16GB */
+-    spp->pls_per_lun = 1;
+-    spp->luns_per_ch = 8;
+-    spp->nchs = 8;
+-    spp->nwps = MAX_NUM_STREAMS;
+-
+-    spp->pg_rd_lat = NAND_READ_LATENCY;
+-    spp->pg_wr_lat = NAND_PROG_LATENCY;
+-    spp->blk_er_lat = NAND_ERASE_LATENCY;
+-    spp->ch_xfer_lat = 0;
++static void ssd_init_params(struct ssdparams *spp, FemuCtrl *n)
++{
++    spp->secsz = n->bb_params.secsz; // 512
++    spp->secs_per_pg = n->bb_params.secs_per_pg; // 8
++    spp->pgs_per_blk = n->bb_params.pgs_per_blk;  // 256
++    spp->blks_per_pl = n->bb_params.blks_per_pl;  /* 256 16GB */
++    spp->pls_per_lun = n->bb_params.pls_per_lun;  // 1
++    spp->luns_per_ch = n->bb_params.luns_per_ch;  // 8
++    spp->nchs = n->bb_params.nchs;                // 8;
++
++    spp->pg_rd_lat = n->bb_params.pg_rd_lat;      // NAND_READ_LATENCY
++    spp->pg_wr_lat = n->bb_params.pg_wr_lat;      // NAND_PROG_LATENCY
++    spp->blk_er_lat = n->bb_params.blk_er_lat;    // NAND_ERASE_LATENCY
++    spp->ch_xfer_lat = n->bb_params.ch_xfer_lat;  // 0
+ 
+     /* calculated values */
+     spp->secs_per_blk = spp->secs_per_pg * spp->pgs_per_blk;
+@@ -864,22 +906,25 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
+             break;
+     }
+ 
+-
+-    NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
+-#define NVME_RW_DTYPE_STREAMS   (1 << 4)
+-    if (rw->control & NVME_RW_DTYPE_STREAMS)
+-        sid = (rw->dsmgmt >> 16);
++    if (spp->multistream_strategy == MULTISTREAM_MANUAL) {
++        NvmeRwCmd *rw = (NvmeRwCmd*)&req->cmd;
++        #define NVME_RW_DTYPE_STREAMS (1 << 4)
++        if (rw->control & NVME_RW_DTYPE_STREAMS)
++            sid = (rw->dsmgmt >> 16);
++    }
+ 
+     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+-        /* assign streamID */
+-        compress_ratio = calc_compress_ratio(mb, lpn);
+-        compress_ratio += 1; // make compiler happy
+-        //sid = get_stream_id(compress_ratio, lpn);
++        /* assign stream ID */
++        if (spp->multistream_strategy == MULTISTREAM_ENTROPY) {
++            compress_ratio = calc_compress_ratio(mb, lpn);
++            sid = get_stream_id(compress_ratio, lpn);
++        }
+ 
+         /* user-defined statistics */
+         ssd->stats.total_user_writes++;
+-        ssd->stats.streams[sid].cnt++;
++        ssd->stats.streams[sid].user_writes++;
+ 
++        ssd->pg_copyback_tbl[lpn] = 0;
+         ppa = get_maptbl_ent(ssd, lpn);
+         if (mapped_ppa(&ppa)) {
+             /* update old page information first */

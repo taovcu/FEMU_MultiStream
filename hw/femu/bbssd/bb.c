@@ -82,28 +82,43 @@ static int compare(const void *lhs, const void *rhs)
 static void bb_stats(FemuCtrl *n, NvmeCmd *cmd)
 {
     struct ssd *ssd = n->ssd;
-    femu_log("total_ssd_writes = %lu, total_user_writes = %lu, write_amp = %lf\n\r",
-        ssd->stats.total_ssd_writes, ssd->stats.total_user_writes, (double)ssd->stats.total_ssd_writes / ssd->stats.total_user_writes);
+    // femu_log("total_ssd_writes = %lu, total_user_writes = %lu, write_amp = %lf\n\r",
+    //     ssd->stats.total_ssd_writes, ssd->stats.total_user_writes, (double)ssd->stats.total_ssd_writes / ssd->stats.total_user_writes);
+    struct ssdparams *spp = &ssd->sp;
+
+    femu_log("total_ssd_writes = %lu, total_user_writes = %lu, total_gc_writes = %lu, write_amp = %lf\n",
+        ssd->stats.total_ssd_writes, ssd->stats.total_user_writes, ssd->stats.total_gc_writes, (double)ssd->stats.total_ssd_writes / ssd->stats.total_user_writes);
 
     struct line_mgmt *lm = &ssd->lm;
     femu_log("tt_lines = %d, free_line_cnt = %d, full_line_cnt = %d, victim_line_cnt = %d\n\r",
         lm->tt_lines, lm->free_line_cnt, lm->full_line_cnt, lm->victim_line_cnt);
 
    
-    char tmp[128];
-    char str[MAX_NUM_STREAMS * 128];
+    // char tmp[128];
+    // char str[MAX_NUM_STREAMS * 128];
+    char line[128];
+    char *str = g_malloc0(spp->nwps * sizeof(line));
     str[0] = '\0';
-    for (int i = 0; i < MAX_NUM_STREAMS; i++) {
+    for (int i = 0; i < spp->nwps; i++) {
         uint64_t gc_cnt = ssd->stats.streams[i].gc_cnt;
 
-        sprintf(tmp, "streams[%d]: cnt = %lu, gc_cnt = %lu, copyback_ratio = %f \n\r",
+        sprintf(line, "streams[%d]: user_writes= %lu, gc_writes = %lu, amp = %lf, gc_cnt = %lu, copyback_ratio = %f\n", \
             i,
-            ssd->stats.streams[i].cnt,
+            ssd->stats.streams[i].user_writes,
+            ssd->stats.streams[i].gc_writes,
+            (double) (ssd->stats.streams[i].user_writes + ssd->stats.streams[i].gc_writes) / ssd->stats.streams[i].user_writes,
             gc_cnt,
             gc_cnt ? ssd->stats.streams[i].copyback_ratio_sum / gc_cnt : 0.0);
-        strcat(str, tmp);
+        strcat(str, line);
     }
-    femu_log("%s\n\r", str);
+    femu_log("streams statistics:\n%s", str);
+    /*
+    for (int i = 0; i < spp->tt_pgs; i++) {
+        femu_log("%d\n", ssd->pg_copyback_tbl[i]);
+    }
+    */
+
+    free(str);
 }
 
 static uint16_t bb_nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
